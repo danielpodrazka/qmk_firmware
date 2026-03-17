@@ -156,7 +156,7 @@ void matrix_read_rows_on_col(uint8_t current_col, matrix_row_t row_shifter) {
         return;                     // skip NO_PIN col
     }
 
-    wait_us(40);
+    wait_us(20);
 
     uint8_t debouce_times = ANALOG_DEBOUCE_TIME;
     uint8_t row_value = 0;
@@ -241,9 +241,9 @@ void matrix_init_custom(void) {
         chn = pinToAdcChn(row_pins[x]);
         if (chn < 0xFF) {
             if (chn > 9 )
-                smpr[0] |= ADC_SAMPLE_56 << ((chn-10) * 3);
+                smpr[0] |= ADC_SAMPLE_15 << ((chn-10) * 3);
             else
-                smpr[1] |= ADC_SAMPLE_56 << (chn * 3);
+                smpr[1] |= ADC_SAMPLE_15 << (chn * 3);
 
             sqr[chn_cnt/6] |= chn << ((chn_cnt % 6) * 5);
             chn_cnt++;
