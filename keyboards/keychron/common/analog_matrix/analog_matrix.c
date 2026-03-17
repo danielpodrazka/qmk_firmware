@@ -94,6 +94,7 @@ enum {
     AMC_SET_GAME_CONTROLLER_MODE,
 
     AMC_GET_REALTIME_TRAVEL = 0x30,
+    AMC_STREAM_TRAVEL       = 0x31,
 
     AMC_CALIBRATE = 0x40,
     AMC_GET_CALIBRATE_STATE,
@@ -103,6 +104,10 @@ enum {
 extern const matrix_row_t analog_matrix_mask[];
 extern const matrix_row_t okmc_matrix[MATRIX_ROWS];
 extern matrix_row_t virtual_matrix[MATRIX_ROWS];
+
+// Stream mode: when enabled, firmware sends bulk travel reports every cycle
+static bool     stream_enabled = false;
+static uint32_t stream_timer   = 0;
 
 extern bool regular_trigger_action(analog_key_t *key);
 extern bool okmc_action(analog_key_t *key);
@@ -811,6 +816,51 @@ bool get_realtime_travel(uint8_t *data) {
     return true;
 }
 
+// Send bulk travel data for all keys with non-zero travel.
+// Report format: a9 31 <count> [key0_pos key0_travel] [key1_pos key1_travel] ...
+//   key_pos = (row << 4) | col  (1 byte, supports up to 16 rows x 16 cols)
+//   travel  = analog_key_matrix[row][col].travel  (1 byte, raw 0-240)
+// Up to 14 keys per 32-byte report (2 header + 1 count + 14*2 = 31).
+// Multiple reports sent if more than 14 keys are active.
+static void stream_travel_report(void) {
+    uint8_t buf[RAW_EPSIZE];
+    uint8_t idx   = 3;  // start after header
+    uint8_t count = 0;
+
+    buf[0] = 0xA9;
+    buf[1] = AMC_STREAM_TRAVEL;
+
+    for (uint8_t r = 0; r < MATRIX_ROWS; r++) {
+        for (uint8_t c = 0; c < MATRIX_COLS; c++) {
+            if ((analog_matrix_mask[r] & (1 << c)) == 0) continue;
+
+            uint8_t travel = analog_key_matrix[r][c].travel;
+            if (travel == 0) continue;
+
+            buf[idx++] = (r << 4) | c;
+            buf[idx++] = travel;
+            count++;
+
+            // Report full — flush
+            if (idx >= RAW_EPSIZE - 1) {
+                buf[2] = count;
+                raw_hid_send(buf, RAW_EPSIZE);
+                idx   = 3;
+                count = 0;
+            }
+        }
+    }
+
+    // Send remaining (or empty report as heartbeat so host knows we're alive)
+    buf[2] = count;
+    if (idx > 3) {
+        memset(&buf[idx], 0, RAW_EPSIZE - idx);
+    } else {
+        memset(&buf[3], 0, RAW_EPSIZE - 3);
+    }
+    raw_hid_send(buf, RAW_EPSIZE);
+}
+
 void analog_matrix_task(void) {
     calibrate();
     profile_indication_timer_check();
@@ -823,6 +873,12 @@ void analog_matrix_task(void) {
     extern void xinput_task(void);
     xinput_task();
 #endif
+
+    // Stream travel data at ~200Hz (every 5ms)
+    if (stream_enabled && timer_elapsed32(stream_timer) >= 5) {
+        stream_timer = timer_read32();
+        stream_travel_report();
+    }
 }
 
 static void get_calibrate_state(uint8_t *data) {
@@ -932,6 +988,12 @@ void analog_matrix_rx(uint8_t *data, uint8_t length) {
         case AMC_GET_REALTIME_TRAVEL:
             success = get_realtime_travel(&data[2]);
             data[2] = success ? 0 : 1;
+            break;
+
+        case AMC_STREAM_TRAVEL:
+            stream_enabled = data[2] != 0;
+            stream_timer   = timer_read32();
+            data[2] = stream_enabled ? 1 : 0;
             break;
 
         case AMC_RESET_PROFILE:
