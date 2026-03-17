@@ -156,7 +156,7 @@ void matrix_read_rows_on_col(uint8_t current_col, matrix_row_t row_shifter) {
         return;                     // skip NO_PIN col
     }
 
-    wait_us(20);
+    wait_us(5);
 
     uint8_t debouce_times = ANALOG_DEBOUCE_TIME;
     uint8_t row_value = 0;
