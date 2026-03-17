@@ -875,7 +875,7 @@ void analog_matrix_task(void) {
 #endif
 
     // Stream travel data at ~200Hz (every 5ms)
-    if (stream_enabled && timer_elapsed32(stream_timer) >= 2) {
+    if (stream_enabled && timer_elapsed32(stream_timer) >= 1) {
         stream_timer = timer_read32();
         stream_travel_report();
     }
